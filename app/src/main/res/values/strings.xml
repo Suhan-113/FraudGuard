@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">AIFraudGuard</string>
+    <string name="accessibility_service_description">This service reads message content from apps like WhatsApp to detect scams in real-time.</string>
+</resources>
