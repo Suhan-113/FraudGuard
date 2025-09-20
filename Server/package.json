@@ -1,0 +1,16 @@
+{
+  "name": "fraudguard-node-server",
+  "version": "1.0.0",
+  "description": "Node.js service for handling web traffic",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "microsoft-cognitiveservices-speech-sdk": "^1.38.0",
+    "node-fetch": "^2.7.0",
+    "twilio": "^5.2.0",
+    "ws": "^8.17.0"
+  }
+}

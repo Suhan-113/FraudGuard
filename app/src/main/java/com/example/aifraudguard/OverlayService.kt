@@ -275,7 +275,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         tts?.shutdown()
 
         webSocket?.close(1000, "Service destroyed")
-        if (::overlayView.isInitialized && overlayView.isAttachedToWindow()) {
+        if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
             windowManager.removeView(overlayView)
         }
     }
