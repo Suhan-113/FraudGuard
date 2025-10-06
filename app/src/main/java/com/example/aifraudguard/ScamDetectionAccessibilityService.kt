@@ -41,7 +41,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
     private fun analyzeText(text: String) {
         // --- ⚠️ CRITICAL ⚠️ ---
         // MAKE SURE THIS NGROK URL IS CORRECT AND CURRENT!
-        val ngrokHost = "42da9636895c.ngrok-free.app" // e.g., "0451bcdd597e.ngrok-free.app"
+        val ngrokHost = "6a09e3e41ae5.ngrok-free.app" // e.g., "0451bcdd597e.ngrok-free.app"
 
         val serverUrl = "https://$ngrokHost/predict"
 

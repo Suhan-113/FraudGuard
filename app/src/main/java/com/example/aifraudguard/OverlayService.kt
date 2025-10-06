@@ -47,6 +47,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     private val instructionHandler = Handler(Looper.getMainLooper())
     private var isWaitingForMerge = false
 
+    // --- NEW: A separate Handler and flag for the repeating fraud alert ---
     private val alertHandler = Handler(Looper.getMainLooper())
     private var isAlerting = false
 
@@ -55,6 +56,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         private const val NOTIFICATION_ID = 1
     }
 
+    // THIS FUNCTION MUST RETURN A VALUE. HERE WE RETURN NULL.
     override fun onBind(intent: Intent?): IBinder? {
         return null
     }
@@ -62,12 +64,15 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, createNotification())
 
+        // Check if the service was started for a fraud alert from the messaging feature
         val reason = intent?.getStringExtra("fraud_alert_reason")
         if (reason != null) {
+            // Make sure the view is ready before trying to update it
             if (::overlayView.isInitialized) {
                 updateOverlayForAlert(reason)
             }
         }
+
         return START_NOT_STICKY
     }
 
@@ -81,6 +86,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
 
         windowManager = getSystemService(WindowManager::class.java)
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
+
         tts = TextToSpeech(this, this)
 
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -99,6 +105,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
             gravity = Gravity.TOP
         }
 
+        // Find UI components
         statusText = overlayView.findViewById(R.id.tv_status)
         actionButton = overlayView.findViewById(R.id.btn_action)
         rootLayout = overlayView.findViewById(R.id.overlay_root)
@@ -109,10 +116,9 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
             actionButton.text = "Connecting..."
             actionButton.isEnabled = false
             connectWebSocketWithCallback {
-                // Now that we're connected, place the call to the bot and guide the user
                 Handler(Looper.getMainLooper()).post {
-                    addAssistantBot()
                     showWaitingForMergeState()
+                    addAssistantBot()
                 }
             }
         }
@@ -123,6 +129,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
+            Log.d("TTS", "TextToSpeech engine initialized successfully.")
         } else {
             Log.e("TTS", "TextToSpeech initialization failed.")
         }
@@ -133,7 +140,6 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         statusText.text = "Tap 'Merge Calls' on your screen!"
         actionButton.visibility = View.GONE
 
-        // Start the repeating voice and visual prompt
         instructionRunnable.run()
     }
 
@@ -169,24 +175,32 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         statusText.text = "⚠ High Risk: $reason"
         rootLayout.setBackgroundColor(Color.parseColor("#D32F2F"))
 
+        // --- NEW: Start the repeating spoken alert ---
         isAlerting = true
-        alertRunnable.run()
+        alertRunnable.run() // Start the repeating task immediately
+        // --- END NEW ---
 
         actionButton.text = "Hang Up"
         actionButton.isEnabled = true
         actionButton.visibility = View.VISIBLE
         actionButton.setOnClickListener {
+            // --- NEW: Tell our InCallService to hang up the call ---
             FraudGuardInCallService.hangUpCall()
-            stopSelf()
+            // --- END NEW ---
+
+            stopSelf() // Then, close the overlay
         }
     }
 
+    // --- NEW: The repeating task for the fraud alert ---
     private val alertRunnable = object : Runnable {
         override fun run() {
             if (!isAlerting) return
+
             val alertMessage = "Fraud detected. Please hang up."
             tts?.speak(alertMessage, TextToSpeech.QUEUE_FLUSH, null, "fraud_alert")
-            alertHandler.postDelayed(this, 4000)
+
+            alertHandler.postDelayed(this, 4000) // Repeat every 4 seconds
         }
     }
 
@@ -228,13 +242,17 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun connectWebSocketWithCallback(onOpenCallback: () -> Unit) {
-        val ngrokHost = "42da9636895c.ngrok-free.app" // ⚠ UPDATE THIS URL
+        // --- ⚠ CRITICAL ⚠ ---
+        val ngrokHost = "6a09e3e41ae5.ngrok-free.app" // ⚠ UPDATE THIS URL
+
         val wssUrl = "wss://$ngrokHost"
+
         val client = OkHttpClient()
         val request = Request.Builder()
             .url(wssUrl)
             .addHeader("ngrok-skip-browser-warning", "true")
             .build()
+
         this.webSocket = client.newWebSocket(request, createWebSocketListener(onOpenCallback))
     }
 
@@ -255,7 +273,8 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
                 CHANNEL_ID, "AI Fraud Guard Active",
                 NotificationManager.IMPORTANCE_DEFAULT
             )
-            getSystemService(NotificationManager::class.java).createNotificationChannel(serviceChannel)
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(serviceChannel)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AI Guard is active")
@@ -266,6 +285,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Make sure all repeating tasks are stopped
         isWaitingForMerge = false
         instructionHandler.removeCallbacks(instructionRunnable)
         isAlerting = false
@@ -275,7 +295,7 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         tts?.shutdown()
 
         webSocket?.close(1000, "Service destroyed")
-        if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
+        if (::overlayView.isInitialized && overlayView.isAttachedToWindow()) {
             windowManager.removeView(overlayView)
         }
     }
