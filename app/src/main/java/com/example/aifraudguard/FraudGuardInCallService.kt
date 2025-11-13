@@ -1,86 +1,105 @@
 package com.example.aifraudguard
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.telecom.Call
 import android.telecom.InCallService
+import android.telecom.TelecomManager
 import android.util.Log
 import androidx.annotation.RequiresApi
+
 
 @RequiresApi(Build.VERSION_CODES.M)
 class FraudGuardInCallService : InCallService() {
 
     companion object {
-        // This list will hold the active calls
+        // Now we manage a list of calls, not just one
         private val calls = mutableListOf<Call>()
+        private var instance: FraudGuardInCallService? = null
 
+        // This function will be called by the OverlayService to start the process
+        fun startConferenceFlow() {
+            instance?.initiateProtection()
+        }
+
+        // This function hangs up the primary call
         fun hangUpCall() {
-            calls.find { it.state == Call.STATE_ACTIVE }?.disconnect()
-            Log.d("InCallService", "Hang up command sent.")
+            // Disconnect the first call in the list, which should be the main one
+            calls.firstOrNull()?.disconnect()
         }
     }
 
-    // This map will store the callbacks for each call to prevent memory leaks
-    private val callCallbackMap = mutableMapOf<Call, Call.Callback>()
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
+    // When a new call is added (either incoming or outgoing), add it to our list
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         calls.add(call)
-        Log.d("InCallService", "Call added. Total calls: ${calls.size}. State: ${call.state}")
 
-        // 1. Create a new listener (callback) for this specific call
-        val callback = object : Call.Callback() {
-            // This function is called whenever the call's state changes
-            override fun onStateChanged(call: Call, state: Int) {
-                super.onStateChanged(call, state)
-                Log.d("InCallService", "State changed for a call. New state: $state")
-
-                // 2. Check if the new state is ACTIVE. This means the call is connected.
-                if (state == Call.STATE_ACTIVE) {
-                    // 3. Now that this call is active, we can try to merge.
-                    tryMergeCalls()
-                }
-            }
-        }
-
-        // 4. Register the listener and store it
-        call.registerCallback(callback)
-        callCallbackMap[call] = callback
-    }
-
-    private fun tryMergeCalls() {
-        // We only merge if there are exactly two calls
-        if (calls.size == 2) {
-            val call1 = calls[0]
-            val call2 = calls[1]
-
-            // We need to identify which call is active and which should be held.
-            // The one that just became active should initiate the merge.
-            val activeCall = if (call1.state == Call.STATE_ACTIVE) call1 else call2
-            val callToHold = if (activeCall == call1) call2 else call1
-
-            // 5. Put the OTHER call on hold
-            if (callToHold.state != Call.STATE_HOLDING && callToHold.details.can(Call.Details.CAPABILITY_HOLD)) {
-                callToHold.hold()
-                Log.d("InCallService", "Putting the other call on hold.")
-            }
-
-            // 6. Now, perform the merge on the active call
-            if (activeCall.details.can(Call.Details.CAPABILITY_MERGE_CONFERENCE)) {
-                activeCall.mergeConference()
-                Log.d("InCallService", "Merge command sent.")
-            }
+        // When the first call is added, start the overlay service
+        if (calls.size == 1) {
+            val intent = Intent(this, OverlayService::class.java)
+            startService(intent)
         }
     }
 
+    // When a call is removed, remove it from our list
     override fun onCallRemoved(call: Call) {
         super.onCallRemoved(call)
         calls.remove(call)
+    }
 
-        // 7. CRITICAL: Unregister the listener to prevent memory leaks
-        callCallbackMap[call]?.let {
-            call.unregisterCallback(it)
-            callCallbackMap.remove(call)
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+    }
+
+    // This is the core logic for the automatic merge
+    private fun initiateProtection() {
+        // 1. Find the original call (there should only be one at this point)
+        if (calls.size != 1) return
+        val originalCall = calls.first()
+
+        // 2. Place the second call to your Twilio number
+        val telecomManager = getSystemService(TelecomManager::class.java)
+        val botUri = Uri.parse("tel:+12136934461") // Your Twilio number
+
+        // This command places the call. The onCallAdded function will be triggered again
+        // when this new call is created by the system.
+        telecomManager.placeCall(botUri, null)
+
+        // 3. Set up a listener to wait for the new call to become active
+        registerCallbackForNewestCall()
+    }
+
+    private fun registerCallbackForNewestCall() {
+        // Wait for the second call to be added to our list
+        if (calls.size < 2) {
+            // If the call hasn't been added yet, wait a moment and try again
+            android.os.Handler(mainLooper).postDelayed({ registerCallbackForNewestCall() }, 500)
+            return
         }
-        Log.d("InCallService", "Call removed and callback unregistered. Total calls: ${calls.size}")
+
+        val newCall = calls.last()
+        newCall.registerCallback(object : Call.Callback() {
+            override fun onStateChanged(call: Call, state: Int) {
+                super.onStateChanged(call, state)
+
+                // 4. Wait until the new call to Twilio is 'Active'
+                if (state == Call.STATE_ACTIVE) {
+                    val originalCall = calls.firstOrNull()
+                    if (originalCall != null && originalCall.details.can(Call.Details.CAPABILITY_MERGE_CONFERENCE)) {
+                        // 5. THE MAGIC COMMAND: Automatically merge the two calls
+                        originalCall.conference(call)
+                    }
+                    // We're done with this callback, so unregister it
+                    call.unregisterCallback(this)
+                }
+            }
+        })
     }
 }

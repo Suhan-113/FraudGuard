@@ -1,45 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
-    android:orientation="vertical"
     android:padding="16dp"
     tools:context=".MainActivity">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="AI Fraud Guard Setup"
-        android:textSize="24sp"
-        android:textStyle="bold" />
+    <!-- Profile Icon in the top-left corner -->
+    <ImageView
+        android:id="@+id/profileIcon"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:src="@drawable/ic_profile_placeholder"
+        android:contentDescription="User Profile"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"/>
 
-    <Button
-        android:id="@+id/btn_enable_caller_id"
-        android:layout_width="wrap_content"
+    <!-- Centered content -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="1. Enable as Caller ID App" />
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_centerInParent="true">
 
-    <Button
-        android:id="@+id/btn_enable_overlay"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="2. Grant Overlay Permission" />
+        <TextView
+            android:id="@+id/welcomeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            tools:text="Welcome, User"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="32dp"/>
 
-    <Button
-        android:id="@+id/btn_enable_accessibility"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Enable Messaging Protection" />
-    <Button
-        android:id="@+id/btn_enable_incall_service"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Enable Call Management" />
+        <Button
+            android:id="@+id/btn_enable_caller_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Caller ID Service"
+            android:layout_marginBottom="12dp"/>
 
-</LinearLayout>
+        <Button
+            android:id="@+id/btn_enable_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Grant Overlay Permission"
+            android:layout_marginBottom="12dp"/>
+
+        <Button
+            android:id="@+id/btn_enable_incall_service"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Call Management"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- New Button to go to the MoreActivity -->
+        <Button
+            android:id="@+id/btn_more"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Recent Scams &amp; Safety Tips"
+            android:layout_marginBottom="12dp"/>
+        <Button
+            android:id="@+id/btn_enable_accessibility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Message Scanning"
+            android:layout_marginTop="8dp" />
+
+    </LinearLayout>
+
+</RelativeLayout>

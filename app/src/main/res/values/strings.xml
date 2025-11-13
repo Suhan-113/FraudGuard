@@ -1,4 +1,21 @@
 <resources>
     <string name="app_name">AIFraudGuard</string>
     <string name="accessibility_service_description">This service reads message content from apps like WhatsApp to detect scams in real-time.</string>
+
+    <string name="scam_desc_bank">
+        A caller claims your account is frozen or your card is blocked, demanding your OTP, CVV, or passwords for "verification." Remember: Banks never ask for sensitive data over the phone.
+    </string>
+    <string name="scam_desc_lottery">
+        A call informs you that you\'ve won a large prize or lottery, but first, you must pay a "processing fee" or "tax." This is a lie. Legitimate winnings do not require upfront payment.
+    </string>
+    <string name="scam_desc_urgent_pay">
+        The caller threatens immediate service disconnection (e.g., electricity, internet) if an urgent payment isn\'t made. Always hang up and call the utility company using a publicly verified number.
+    </string>
+    <string name="scam_desc_vishing">
+        This involves a scammer guiding you to a malicious website or convincing you to click a link sent via text/email to steal your credentials. Never click unverified links during a call.
+    </string>
+    <string name="scam_desc_general_rule">
+        NEVER share any sensitive information—PINs, OTPs, Passwords, or personal IDs—with unsolicited callers. Legitimate organizations have this data or use secure methods for verification.
+    </string>
+
 </resources>

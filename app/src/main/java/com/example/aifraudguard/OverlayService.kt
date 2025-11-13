@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -28,7 +29,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.IOException
 import java.util.*
 
 class OverlayService : Service(), TextToSpeech.OnInitListener {
@@ -46,33 +50,37 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private val instructionHandler = Handler(Looper.getMainLooper())
     private var isWaitingForMerge = false
-
-    // --- NEW: A separate Handler and flag for the repeating fraud alert ---
     private val alertHandler = Handler(Looper.getMainLooper())
     private var isAlerting = false
+
+    // NEW: Variables to hold scam details for reporting
+    private var lastScamTypeName: String? = null
+    private var lastReportSummary: String? = null
 
     companion object {
         private const val CHANNEL_ID = "FraudGuardChannel"
         private const val NOTIFICATION_ID = 1
     }
 
-    // THIS FUNCTION MUST RETURN A VALUE. HERE WE RETURN NULL.
     override fun onBind(intent: Intent?): IBinder? {
         return null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, createNotification())
-
-        // Check if the service was started for a fraud alert from the messaging feature
         val reason = intent?.getStringExtra("fraud_alert_reason")
         if (reason != null) {
-            // Make sure the view is ready before trying to update it
+            // FIX: Ensure all report fields are initialized even for an external start.
             if (::overlayView.isInitialized) {
-                updateOverlayForAlert(reason)
+                val simpleJson = JSONObject().apply {
+                    put("reason", reason)
+                    put("scam_type_name", "External Alert")
+                    put("report_summary", "Alert triggered externally: $reason. Report summary is based on reason.")
+                    put("educational_summary", "No educational info available.")
+                }
+                updateOverlayForAlert(simpleJson)
             }
         }
-
         return START_NOT_STICKY
     }
 
@@ -86,7 +94,6 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
 
         windowManager = getSystemService(WindowManager::class.java)
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
-
         tts = TextToSpeech(this, this)
 
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -96,21 +103,14 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         }
 
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP
-        }
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP }
 
-        // Find UI components
         statusText = overlayView.findViewById(R.id.tv_status)
         actionButton = overlayView.findViewById(R.id.btn_action)
         rootLayout = overlayView.findViewById(R.id.overlay_root)
 
-        // Set the initial state of the button for the call feature
         actionButton.text = "Protect this call"
         actionButton.setOnClickListener {
             actionButton.text = "Connecting..."
@@ -129,7 +129,6 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            Log.d("TTS", "TextToSpeech engine initialized successfully.")
         } else {
             Log.e("TTS", "TextToSpeech initialization failed.")
         }
@@ -139,21 +138,18 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
         isWaitingForMerge = true
         statusText.text = "Tap 'Merge Calls' on your screen!"
         actionButton.visibility = View.GONE
-
         instructionRunnable.run()
     }
 
     private val instructionRunnable = object : Runnable {
         override fun run() {
             if (!isWaitingForMerge) return
-
             val anim = AlphaAnimation(0.2f, 1.0f).apply {
                 duration = 700
                 repeatMode = Animation.REVERSE
                 repeatCount = 1
             }
             statusText.startAnimation(anim)
-
             tts?.speak("Please tap merge calls", TextToSpeech.QUEUE_FLUSH, null, "")
             instructionHandler.postDelayed(this, 3500)
         }
@@ -162,46 +158,109 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     private fun onCallMerged() {
         isWaitingForMerge = false
         instructionHandler.removeCallbacks(instructionRunnable)
-
         statusText.text = "✅ Call is Protected"
         actionButton.visibility = View.GONE
         rootLayout.setBackgroundColor(Color.parseColor("#4CAF50"))
     }
 
-    private fun updateOverlayForAlert(reason: String) {
+    // UPDATED FUNCTION: Now takes the full JSON object
+    private fun updateOverlayForAlert(data: JSONObject) {
         isWaitingForMerge = false
         instructionHandler.removeCallbacks(instructionRunnable)
 
-        statusText.text = "⚠ High Risk: $reason"
+        val reason = data.optString("reason", "Fraud detected.")
+        statusText.text = "⚠️ High Risk: $reason"
         rootLayout.setBackgroundColor(Color.parseColor("#D32F2F"))
 
-        // --- NEW: Start the repeating spoken alert ---
-        isAlerting = true
-        alertRunnable.run() // Start the repeating task immediately
-        // --- END NEW ---
+        // NEW: Store details from the full JSON object
+        lastScamTypeName = data.optString("scam_type_name", "Unknown Scam")
+        lastReportSummary = data.optString("report_summary", "No summary available.")
 
-        actionButton.text = "Hang Up"
+        // FraudGuardInCallService.lastFraudSummary = Pair(
+        //     data.optString("scam_type_name", "Unknown Scam"),
+        //     data.optString("educational_summary", "No educational info available.")
+        // )
+
+        isAlerting = true
+        alertRunnable.run()
+
+        // --- UPDATED BUTTON LOGIC ---
+        actionButton.text = "Report Fraud"
         actionButton.isEnabled = true
         actionButton.visibility = View.VISIBLE
         actionButton.setOnClickListener {
-            // --- NEW: Tell our InCallService to hang up the call ---
-            FraudGuardInCallService.hangUpCall()
-            // --- END NEW ---
+            // Stop the repeating alert sound
+            isAlerting = false
+            alertHandler.removeCallbacks(alertRunnable)
+            tts?.stop()
 
-            stopSelf() // Then, close the overlay
+            // NEW: Call the report function
+            reportScam()
         }
     }
 
-    // --- NEW: The repeating task for the fraud alert ---
     private val alertRunnable = object : Runnable {
         override fun run() {
             if (!isAlerting) return
-
             val alertMessage = "Fraud detected. Please hang up."
             tts?.speak(alertMessage, TextToSpeech.QUEUE_FLUSH, null, "fraud_alert")
-
-            alertHandler.postDelayed(this, 4000) // Repeat every 4 seconds
+            alertHandler.postDelayed(this, 4000)
         }
+    }
+
+    // --- NEW REPORTING FUNCTION ---
+    private fun reportScam() {
+
+        // FIX: Retrieve the scammer number directly from the companion object
+        val scammerNumber = FraudGuardScreeningService.scammerNumber ?: "SCAMMER_NUMBER_MISSING"
+
+        val sharedPrefs = getSharedPreferences("FraudGuardPrefs", Context.MODE_PRIVATE)
+        // Set a clear default for the user's number if not saved
+        val victimNumber = sharedPrefs.getString("USER_PHONE_NUMBER", "+918277622905")
+
+        // Check if reportSummary is null before using it
+        if (lastReportSummary == null) {
+            lastReportSummary = "No detailed summary available."
+        }
+
+        val json = JSONObject()
+        json.put("victimNumber", victimNumber)
+        json.put("scammerNumber", scammerNumber)
+        json.put("scamTypeName", lastScamTypeName)
+        json.put("reportSummary", lastReportSummary) // This is the field Node.js needs
+
+        val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+
+        // ⚠️ UPDATE THIS URL TO YOUR BACKEND/NGROK REPORTING ENDPOINT
+        val url = "https://86fe5895a366.ngrok-free.app/report-scam"
+
+        val request = Request.Builder().url(url).post(requestBody).build()
+
+        OkHttpClient().newCall(request).enqueue(object: Callback {
+            override fun onResponse(call: Call, response: Response) {
+                // Read the response body to consume it, but use a clean static message for UI
+                response.body?.string()
+
+                Handler(Looper.getMainLooper()).post {
+                    statusText.text = "Report submitted successfully!"
+                    actionButton.text = "✅ Reported"
+                    actionButton.isEnabled = false
+
+                    // Hang up and stop service after a brief delay
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        // FraudGuardInCallService.hangUpCall()
+                        stopSelf()
+                    }, 3000)
+                }
+            }
+            override fun onFailure(call: Call, e: IOException) {
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(applicationContext, "Report failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    actionButton.text = "Report Fraud (Failed)"
+                    actionButton.isEnabled = true
+                }
+            }
+        })
     }
 
     private fun createWebSocketListener(onOpenCallback: () -> Unit) = object : WebSocketListener() {
@@ -218,8 +277,8 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
                 val json = JSONObject(text)
                 when (json.getString("type")) {
                     "fraud_alert" -> {
-                        val reason = json.getString("reason")
-                        Handler(Looper.getMainLooper()).post { updateOverlayForAlert(reason) }
+                        // UPDATED: Pass the entire JSON object now
+                        Handler(Looper.getMainLooper()).post { updateOverlayForAlert(json) }
                     }
                     "merge_successful" -> {
                         Handler(Looper.getMainLooper()).post { onCallMerged() }
@@ -242,17 +301,13 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun connectWebSocketWithCallback(onOpenCallback: () -> Unit) {
-        // --- ⚠ CRITICAL ⚠ ---
-        val ngrokHost = "6a09e3e41ae5.ngrok-free.app" // ⚠ UPDATE THIS URL
-
-        val wssUrl = "wss://$ngrokHost"
-
+        val ngrokHost = "86fe5895a366.ngrok-free.app" // ⚠️ UPDATE THIS URL
+        val wssUrl = "wss://$ngrokHost/app"
         val client = OkHttpClient()
         val request = Request.Builder()
             .url(wssUrl)
             .addHeader("ngrok-skip-browser-warning", "true")
             .build()
-
         this.webSocket = client.newWebSocket(request, createWebSocketListener(onOpenCallback))
     }
 
@@ -285,15 +340,10 @@ class OverlayService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Make sure all repeating tasks are stopped
-        isWaitingForMerge = false
-        instructionHandler.removeCallbacks(instructionRunnable)
         isAlerting = false
         alertHandler.removeCallbacks(alertRunnable)
-
         tts?.stop()
         tts?.shutdown()
-
         webSocket?.close(1000, "Service destroyed")
         if (::overlayView.isInitialized && overlayView.isAttachedToWindow()) {
             windowManager.removeView(overlayView)

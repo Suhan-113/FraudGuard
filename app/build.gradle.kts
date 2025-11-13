@@ -37,6 +37,7 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
     }
     // ❌ The old composeOptions block has been removed as it conflicts
     // with the new kotlin.compose plugin.
